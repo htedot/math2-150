@@ -7774,5 +7774,14 @@ ensureExt();
 save();
 render();
 </script>
+<script>
+/* 注册 Service Worker：既是「可安装应用」的前提，也让断网可用。
+   file:// 打开时跳过（浏览器不允许本地文件注册 SW，功能不受影响）。 */
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* 忽略：不影响使用 */ });
+  });
+}
+</script>
 </body>
 </html>
