@@ -5,7 +5,7 @@
    更新策略：导航请求走网络优先（拿到新版就顺带更新缓存），静态资源走缓存优先。
    发新版时把 VERSION 加一，旧的缓存会在 activate 时清掉。 */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'math2-150-' + VERSION;
 
 const ASSETS = [
