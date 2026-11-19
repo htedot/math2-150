@@ -312,6 +312,27 @@ dl.fml dd .katex{font-size:1.02em}
 .tut .brow{margin-top:6px}
 .tut-note{margin:9px 0 0;font-size:12.4px;color:var(--acc);background:var(--acc-soft);border-radius:8px;padding:7px 10px}
 
+/* 错题本：可做题的条目 */
+.wrlist>li.wr{display:block;padding:14px 4px}
+.wr .wrhead{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.wrtag{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:99px;padding:2px 9px;line-height:1.5}
+.wrtag.ok{color:var(--green);border-color:var(--green)}
+.wrtag.due{color:var(--acc);border-color:var(--acc);background:var(--acc-soft)}
+.wrq{font-size:15.5px;line-height:1.9;color:var(--ink);white-space:pre-wrap}
+.wrq .katex{font-size:1.03em}
+.wrdetail{margin-top:8px;font-size:13px;color:var(--ink2);white-space:pre-wrap;border-left:2px solid var(--line);padding-left:10px}
+.wrsol{display:none;margin-top:10px;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.wrsol.on{display:block}
+.wrsol p{margin:0 0 8px;font-size:14px;line-height:1.95;color:var(--ink2);white-space:pre-wrap}
+.wrsol p:last-child{margin-bottom:0}
+.wrsol b{display:inline-block;margin-right:8px;font-size:12px;color:var(--acc);border:1px solid var(--acc);border-radius:6px;padding:0 6px;vertical-align:1px}
+.wracts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+@media(max-width:760px){
+  .wrq{font-size:15px}
+  .wracts{gap:6px}
+  .wracts .btn.sm{flex:1 1 auto}
+}
+
 .exambar{position:sticky;top:0;z-index:35;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 0;margin:0 0 12px;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
 .exambar .clock{font-family:Georgia,serif;font-size:24px;color:var(--acc);font-variant-numeric:tabular-nums}
 .exambar .clock.warn{color:#c0392b}
@@ -6966,7 +6987,9 @@ document.addEventListener('submit', e => {
     const title = String(fd.get('title') || '').trim(); if (!title) return;
     S.wrongs.push({
       id: uid(), title, ch: fd.get('ch'), cause: fd.get('cause'),
-      detail: String(fd.get('detail') || '').trim(),
+      ans: String(fd.get('ans') || '').trim(),
+      sol: String(fd.get('sol') || '').trim(),
+      detail: '',
       createdAt: today(), n: 0, next: STEP() + 1, done: false
     });
     save(); toast('已记录，学完下一个单元就能回炉'); render(); return;
@@ -7320,7 +7343,11 @@ document.addEventListener('click', ev => {
     S.done[id] = S.done[id] === r ? 0 : r;
     if (r === 2) {
       const ch = id.split('-')[0], q = BANK[ch] && BANK[ch][+id.split('-q')[1] - 1];
-      if (q) S.wrongs.push({ id: uid(), title: q.q.slice(0, 42), ch, cause: '思路断层', detail: '来自' + ch.toUpperCase() + ' ' + q.pt + ' 练习', createdAt: today(), n: 0, next: STEP() + 1, done: false });
+      if (q) {
+        const dup = S.wrongs.find(w => w.qid === id && !w.done);
+        if (dup) { dup.n = 0; dup.next = STEP() + 1; }
+        else S.wrongs.push({ id: uid(), qid: id, title: q.q, ch, cause: '思路断层', detail: '', createdAt: today(), n: 0, next: STEP() + 1, done: false });
+      }
     }
     save(); render(); toast(r === 1 ? '标记做对' : '已进错题本'); return;
   }
@@ -7415,7 +7442,8 @@ function viewToday() {
 
   const wrHTML = dueWr.length ? dueWr.slice(0, 6).map(w => {
     const c = CHAPTERS.find(x => x.id === w.ch);
-    return '<li><div class="li-t">' + esc(w.title || '（无标题）') + '<div class="mini">' + esc(c ? c.n : '未分类') + ' · ' + esc(w.cause || '') + ' · 第 ' + (w.n + 1) + ' 次' + '</div></div>' +
+    const wt = w.title || (typeof wrLookup === 'function' && wrLookup(w) ? wrLookup(w).q : '（无标题）');
+    return '<li><div class="li-t">' + esc(wt) + '<div class="mini">' + esc(c ? c.n : '未分类') + ' · ' + esc(w.cause || '') + ' · 第 ' + (w.n + 1) + ' 次' + '</div></div>' +
       '<button class="btn sm" data-act="wr-ok" data-id="' + w.id + '">过关</button></li>';
   }).join('') : '<div class="empty">错题都清空了。</div>';
 
@@ -7762,6 +7790,125 @@ document.addEventListener('click', ev => {
 /* 开始考试后在 f_ext 的 startExam 里已切到试卷页，这里不再重复处理 */
 
 /* ============================================================
+   m_wrongs.js —— 错题本重写：题目可直接做、答案可展开、LaTeX 完整不截断
+   覆盖 e_app.js 的 viewWrongs；新增 wr-reveal / wr-again 两个动作
+   ============================================================ */
+
+function wrLookup(w) {
+  if (!w.qid) return null;
+  const ch = String(w.qid).split('-')[0], i = +String(w.qid).split('-q')[1] - 1;
+  return (BANK[ch] && BANK[ch][i]) || null;
+}
+
+function wrItemHTML(w) {
+  const c = CHAPTERS.find(x => x.id === w.ch);
+  const q = wrLookup(w);
+  const due = !w.done && (w.next === undefined || w.next === null || w.next <= STEP());
+  const rv = S.ui.wrReveal || {};
+  const on = !!rv[w.id];
+  const qtext = w.title || (q ? q.q : '（无题目）');
+  const ans = q ? q.a : (w.ans || '');
+  const sol = q ? q.sol : (w.sol || '');
+  const src = q ? (c ? c.n : '') + ' · ' + q.pt + ' 练习' : (c ? c.n : '未分类');
+  const stat = w.done ? '已过关' : due ? '该回炉了' : '还差 ' + Math.max(0, w.next - STEP()) + ' 个单元';
+
+  return '<li class="wr"><div class="li-t">' +
+    '<div class="wrhead"><span class="wrtag">' + esc(src) + '</span>' +
+    '<span class="wrtag ' + (w.done ? 'ok' : due ? 'due' : '') + '">' + esc(stat) + '</span>' +
+    (w.cause ? '<span class="wrtag">' + esc(w.cause) + '</span>' : '') +
+    '<span class="wrtag">第 ' + (w.n + 1) + ' 次</span></div>' +
+    '<div class="wrq">' + esc(qtext) + '</div>' +
+    (w.detail ? '<div class="wrdetail">' + esc(w.detail) + '</div>' : '') +
+    '<div class="wrsol' + (on ? ' on' : '') + '" id="sol-' + w.id + '">' +
+      (ans ? '<p><b>答案</b>' + esc(ans) + '</p>' : '') +
+      (sol ? '<p><b>解析</b>' + esc(sol) + '</p>' : '') +
+      (!ans && !sol ? '<p class="mini">这道题没有存答案与解析。</p>' : '') +
+    '</div></div>' +
+    '<div class="wracts">' +
+      ((ans || sol) ? '<button class="btn sm" data-act="wr-reveal" data-id="' + w.id + '">' + (on ? '收起' : '看答案') + '</button>' : '') +
+      '<button class="btn sm pri" data-act="wr-ok" data-id="' + w.id + '">这次做对了</button>' +
+      (w.done ? '' : '<button class="btn sm" data-act="wr-again" data-id="' + w.id + '">还是不会</button>') +
+      '<button class="btn sm" data-act="wr-del" data-id="' + w.id + '">删除</button>' +
+    '</div></li>';
+}
+
+function viewWrongs() {
+  const open = S.wrongs.filter(w => !w.done);
+  const dueN = S.wrongs.filter(w => !w.done && (w.next === undefined || w.next === null || w.next <= STEP())).length;
+  const chOpts = CHAPTERS.map(c => '<option value="' + c.id + '">' + esc(c.n) + '</option>').join('');
+  const causeOpts = CAUSES.map(c => '<option>' + c + '</option>').join('');
+  const list = S.wrongs.slice().sort((a, b) =>
+    (a.done ? 1 : 0) - (b.done ? 1 : 0) ||
+    (a.next === null || a.next === undefined ? 1e9 : a.next) - (b.next === null || b.next === undefined ? 1e9 : b.next));
+  const items = list.length ? list.map(wrItemHTML).join('') : '<div class="empty">还没有错题。第一道错题就现在记。</div>';
+
+  return '<div class="sec-h"><h2>错题本</h2><em>未过关 ' + open.length + ' 道 · 现在该回炉 ' + dueN + ' 道 · 共 ' + S.wrongs.length + ' 道</em></div>' +
+    '<div class="card"><h3>回炉怎么用</h3><p class="sub">盖住答案，在纸上重做一遍，再点「看答案」对；做对了按 1/2/4/7/15 个单元的间隔再回炉，连对 5 次算过关。</p></div>' +
+    '<div class="card sec"><h3>记一道错题</h3><p class="sub">只记「本来会做 / 思路差一步」的题才有价值，纯不会的先回去补知识点</p>' +
+      '<form data-form="wrong" style="display:grid;gap:12px">' +
+      '<div class="row"><label class="f" style="flex:2;min-width:220px">题目（可用 LaTeX 公式）<input name="title" placeholder="例：求 $\\lim_{x\\to0}\\frac{e^x-1-x}{x^2}$" required></label>' +
+      '<label class="f" style="flex:1;min-width:150px">章节<select name="ch">' + chOpts + '</select></label>' +
+      '<label class="f" style="flex:1;min-width:130px">错因<select name="cause">' + causeOpts + '</select></label></div>' +
+      '<div class="row"><label class="f" style="flex:1">答案<input name="ans" placeholder="可留空"></label></div>' +
+      '<label class="f">解析 / 正确思路（可粘贴关键步骤，支持 LaTeX 公式）<textarea name="sol" rows="3" placeholder="我当时以为……实际上……关键是要先判断……"></textarea></label>' +
+      '<div class="row"><button class="btn pri" type="submit">加入错题本</button><span class="mini">加入后学完 1 个单元自动提醒回炉</span></div></form></div>' +
+    '<div class="card sec"><h3>全部错题</h3><ul class="list wrlist">' + items + '</ul></div>';
+}
+
+/* 老数据迁移：旧版把题干截到 42 字（常把 $...$ 截断，所以显示成半截 LaTeX），
+   这里按前缀把题目认回题库，补全题干与解析 */
+function wrMigrate() {
+  if (!S || !S.wrongs) return 0;
+  let fixed = 0;
+  S.wrongs.forEach(w => {
+    if (w.qid) return;
+    const m = /^来自\s*(\w+)\s+([\d.]+)\s*练习$/.exec(String(w.detail || ''));
+    const ch = (m && m[1]) || w.ch;
+    const bank = BANK[ch];
+    if (!bank || !w.title) return;
+    const t = String(w.title).trim();
+    /* 旧版按 42 字硬切，常把公式切成半截（\right$ 之类），只能拿开头一小段比对 */
+    let hit = bank.find(x => x.q === t);
+    for (const n of [30, 24, 18, 12]) {
+      if (hit) break;
+      const key = t.slice(0, n);
+      if (key.length < 12) break;
+      hit = bank.find(x => x.q.indexOf(key) === 0);
+    }
+    if (!hit) return;
+    w.qid = ch + '-q' + (bank.indexOf(hit) + 1);
+    w.title = hit.q;
+    w.detail = '';
+    fixed++;
+  });
+  return fixed;
+}
+
+/* 事件：只处理本层新增的两个动作，wr-ok / wr-del 仍交给 e_app.js */
+document.addEventListener('click', function (ev) {
+  const el = ev.target.closest ? ev.target.closest('[data-act]') : null;
+  if (!el) return;
+  const a = el.dataset.act;
+  if (a === 'wr-reveal') {
+    const id = el.dataset.id;
+    S.ui.wrReveal = S.ui.wrReveal || {};
+    const on = !S.ui.wrReveal[id];
+    if (on) S.ui.wrReveal[id] = 1; else delete S.ui.wrReveal[id];
+    const box = document.getElementById('sol-' + id);
+    if (box) box.classList.toggle('on', on);
+    el.textContent = on ? '收起' : '看答案';
+    return;
+  }
+  if (a === 'wr-again') {
+    const w = S.wrongs.find(x => x.id === el.dataset.id);
+    if (!w) return;
+    w.n = 0; w.done = false; w.next = STEP() + 1;
+    save(); toast('再学 1 个单元后回炉'); render();
+    return;
+  }
+}, true);
+
+/* ============================================================
    启动层：必须放在所有分片之后（最后加载）
    —— 之前这段挂在 f_ext.js 末尾，导致初次 render 在本文件之后
       才初始化的 const（__PAP_CSS / EXAM_PAPER 等）处于 TDZ，
@@ -7771,6 +7918,7 @@ document.addEventListener('click', ev => {
 S = load();
 if (!S.start) S.start = today();
 ensureExt();
+try { if (typeof wrMigrate === 'function') wrMigrate(); } catch (e) { }
 save();
 render();
 </script>
