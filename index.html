@@ -117,6 +117,8 @@ label.f{display:flex; flex-direction:column; gap:5px; font-size:12.5px; color:va
 .dots{display:flex; gap:6px; align-items:center; margin:6px 0 10px}
 .dots button{width:22px; height:8px; padding:0; border-radius:99px; border:0; background:var(--line2); cursor:pointer; transition:.15s}
 .dots button.on{background:var(--acc)}
+.dots i.d{display:block;width:22px;height:8px;border-radius:99px;background:var(--line2);transition:.15s}
+.dots i.d.on{background:var(--acc)}
 .dots button:hover{transform:scaleY(1.5)}
 .dots em{font-style:normal; font-size:11.5px; color:var(--mut); margin-left:4px}
 details{border-top:1px dashed var(--line); padding:7px 0 0; margin-top:8px}
@@ -6716,7 +6718,7 @@ function viewPlan() {
 
 /* ---------- 知识图谱 ---------- */
 function viewMap() {
-  let out = '<div class="sec-h"><h2>知识图谱</h2><em>点右侧 5 格自评掌握度，复习按学习步数自动安排 · 共 ' + CHAPTERS.length + ' 章</em></div>' +
+  let out = '<div class="sec-h"><h2>知识图谱</h2><em>进度按做题记录自动算，不用手填 · 共 ' + CHAPTERS.length + ' 章</em></div>' +
     '<div class="row" style="margin-bottom:14px"><button class="btn pri" data-act="flash">开始公式闪卡</button>' +
     '<span class="mini">目标 150 分 ⇒ 每章都要到「熟练无失误」</span></div>';
   ['高等数学', '线性代数'].forEach(g => {
@@ -6724,12 +6726,16 @@ function viewMap() {
     out += '<div class="sec-h"><h2 style="font-size:15px">' + g + '</h2><em>' + cs.length + ' 章 · 约 ' + cs.reduce((a, c) => a + c.h, 0) + ' 学时</em></div><div class="chgrid">';
     out += cs.map(c => {
       const x = S.chapters[c.id], st = chStatus(c.id);
-      const dots = [1, 2, 3, 4, 5].map(v =>
-        '<button class="' + (x.m >= v ? 'on' : '') + '" data-act="mast" data-id="' + c.id + '" data-v="' + v + '" title="' + MILESTONE[v] + '"></button>').join('');
+      const s2 = (typeof chStats === 'function') ? chStats(c.id) : null;
+      const p = s2 ? Math.round(s2.ratio * 100) : 0;
+      const dots = [1, 2, 3, 4, 5].map(v => '<i class="d' + (x.m >= v ? ' on' : '') + '"></i>').join('');
+      const line = s2 ? ('考点 ' + s2.okN + '/' + s2.ptsTotal + ' · 对 ' + s2.ok + ' 错 ' + s2.bad + (s2.wrOut ? ' · 错题 ' + s2.wrOut : '')) : '';
       return '<article class="ch"><h4><i>' + c.id.toUpperCase() + '</i>' + esc(c.n) + '</h4>' +
         '<div class="meta"><span>' + c.w + '</span><span>' + c.h + ' 学时</span><span class="tag ' + (st.k === 'late' ? 'r' : st.k === 'ok' ? 'g' : '') + '">' + st.t + '</span></div>' +
-        '<div class="dots">' + dots + '<em>' + MILESTONE[x.m] + '</em></div>' +
-        '<div class="mini">' + (x.due ? dueNote(x) : (x.m > 0 ? '这一轮复习完了' : '')) + '</div>' +
+        '<div class="bar" style="margin:8px 0 6px"><i style="width:' + p + '%"></i></div>' +
+        '<div class="dots">' + dots + '<em>' + MILESTONE[x.m] + ' · ' + p + '%</em></div>' +
+        '<div class="mini">' + esc(line) + '</div>' +
+        '<div class="mini">' + (x.due ? dueNote(x) : (x.m > 0 ? '' : '还没开始：先做这一章的题')) + '</div>' +
         '<details><summary>考点清单（' + c.pts.length + '）</summary><ul>' + c.pts.map(p => '<li>' + p + '</li>').join('') + '</ul></details>' +
         '<details><summary>核心公式（' + c.fs.length + '）</summary><dl class="fml">' +
         c.fs.map(f => '<dt>' + f[0] + '</dt><dd>' + f[1] + '</dd>').join('') + '</dl></details></article>';
@@ -6928,9 +6934,10 @@ document.addEventListener('click', e => {
   if (a === 'rev') {
     const x = S.chapters[el.dataset.id];
     const gapR = stepRound(x);
-    x.m = Math.min(5, x.m + 1); x.last = today(); x.n++;
+    /* 掌握度由做题证据自动算，这里只记「复习过一次」并重排下一轮 */
+    x.last = today(); x.n++;
     x.due = x.m >= 4 ? null : STEP() + gapR + 1;
-    save(); toast('掌握度 → ' + MILESTONE[x.m] + (x.due ? '，再学 ' + (x.due - STEP()) + ' 个单元后回来' : '，这一章可以毕业了')); render(); return;
+    save(); toast('记下这一轮复习' + (x.due ? '，再学 ' + (x.due - STEP()) + ' 个单元后回来' : '，这一章可以毕业了')); render(); return;
   }
   if (a === 't-start') { startTimer(+el.dataset.min, 'focus'); render(); return; }
   if (a === 't-stop') { stopTimer(); return; }
@@ -7430,17 +7437,24 @@ function viewToday() {
   const okChs = CHAPTERS.filter(c => S.chapters[c.id].m >= 4).length;
 
   const nxHTML = nx ? (function () {
-    const x = S.chapters[nx.id], m = x.m;
-    const dots = [1, 2, 3, 4, 5].map(v => '<i class="d' + (m >= v ? ' on' : '') + '"></i>').join('');
+    const st = (typeof chStats === 'function') ? chStats(nx.id) : null;
+    const m = S.chapters[nx.id].m;
+    const p = st ? Math.round(st.ratio * 100) : 0;
+    const line = st
+      ? '考点拿下 ' + st.okN + '/' + st.ptsTotal + ' · 做对 ' + st.ok + ' 题 · 做错 ' + st.bad + ' 题'
+        + (st.wrOut ? ' · 错题本还挂 ' + st.wrOut + ' 道' : '')
+      : '';
     return '<div class="row" style="justify-content:space-between;align-items:flex-start">' +
       '<div><b style="font-size:17px">' + esc(nx.n) + '</b>' +
       '<div class="mini" style="margin-top:4px">' + esc(nx.g) + ' · ' + nx.w + ' · ' + nx.h + ' 学时 · 当前：' + MILESTONE[m] + '</div>' +
-      '<div class="mini" style="margin-top:2px">' + (x.n ? '已学 ' + x.n + ' 次' : '还没开始') + (x.due ? ' · ' + dueNote(x) : '') + '</div></div></div>' +
-      '<div class="row" style="margin-top:10px;gap:6px">' + [1, 2, 3, 4, 5].map(v =>
-        '<button class="btn sm ' + (m === v ? 'pri' : '') + '" data-act="mast" data-id="' + nx.id + '" data-v="' + v + '">' + MILESTONE[v] + '</button>').join('') + '</div>' +
-      '<div class="row" style="margin-top:10px"><button class="btn pri" data-act="goCourse" data-ch="' + nx.id + '">打开这一章讲义</button>' +
-      '<button class="btn sm" data-act="goMap">全书图谱</button></div>' +
-      '<p class="mini" style="margin:10px 0 0">学完一章就点上面某一档，进度只跟你算了多少章有关，跟星期几无关。</p>';
+      '<div class="mini" style="margin-top:2px">' + line + '</div></div>' +
+      '<div style="min-width:120px;text-align:right"><b style="font-family:Georgia,serif;font-size:22px;color:var(--acc)">' + p + '<small style="font-size:12px">%</small></b>' +
+      '<div class="bar" style="margin-top:6px"><i style="width:' + p + '%"></i></div></div></div>' +
+      '<div class="row" style="margin-top:10px;color:var(--mut);font-size:11px;letter-spacing:.08em">' + chDots(m) + '<em style="font-style:normal;margin-left:4px">' + MILESTONE[m] + '</em></div>' +
+      '<div class="row" style="margin-top:10px"><button class="btn pri" data-act="goCourse" data-ch="' + nx.id + '">继续这一章</button>' +
+      '<button class="btn sm" data-act="goMap">全书图谱</button>' +
+      '<button class="btn sm" data-act="tab" data-tab="exam">来一场模考</button></div>' +
+      '<p class="mini" style="margin:10px 0 0">进度自动算：做对一道题就前进一点，不用你手填。</p>';
   })() : '<div class="empty">12 章全部到「熟练无失误」了。接下来只做两件事：限时模考、真题二刷。</div>';
 
   const dueHTML = dueCh.length ? dueCh.map(c => {
@@ -8069,6 +8083,90 @@ document.addEventListener('click', function (ev) {
     return;
   }
 }, true);
+
+/* ============================================================
+   自动进度层 n_auto.js
+   —— 掌握度不再靠手动点 5 格，全部由「你实际做过什么」反推：
+      题库做对覆盖了多少考点、做错多少、错题本里还挂着几道、冲刺关过了几关
+   —— 每次 render 前同步一次，所以任何一次「做对了 / 做错了 / 交卷 / 通关」
+      都会立刻反映到头部百分比、图谱、路线图与今日页
+   ============================================================ */
+
+/* 统计一章的证据 */
+function chStats(ch) {
+  const bank = BANK[ch] || [];
+  const c = (typeof chObj === 'function') ? chObj(ch) : CHAPTERS.find(x => x.id === ch);
+  const ptsTotal = (c && c.pts) ? c.pts.length : 0;
+  const okPts = {};
+  let ok = 0, bad = 0;
+  if (S.done) {
+    bank.forEach((q, i) => {
+      const st = S.done[ch + '-q' + (i + 1)];
+      if (!st) return;
+      if (st === 1) { ok++; okPts[q.pt] = 1; }
+      else if (st === 2) bad++;
+    });
+  }
+  const okN = Object.keys(okPts).length;           /* 拿下的考点数 */
+  const ratio = ptsTotal ? okN / ptsTotal : 0;
+  const wrOut = (S.wrongs || []).filter(w => !w.done && w.ch === ch).length;
+  const spDays = (typeof SPRINT !== 'undefined' ? SPRINT : []).filter(d => d.ch === ch);
+  const spDone = spDays.filter(d => (typeof SP === 'function') && SP().done && SP().done['D' + d.n]).length;
+
+  let m = 0;
+  if (ok === 0) {
+    m = spDone > 0 ? 1 : 0;                        /* 只听过 / 只过了冲刺关 = 听过 */
+  } else if (ratio < 0.35) m = 1;
+  else if (ratio < 0.65) m = 2;
+  else if (ratio < 0.90) m = 3;
+  else if (ratio < 1) m = 4;
+  else m = wrOut ? 4 : 5;                          /* 全考点做对且错题清零才给 5 */
+
+  /* 错误远多于正确：压一档，别让「蒙对几道」显得像学会了 */
+  if (m > 1 && bad > ok * 2) m -= 1;
+
+  return { ok, bad, okN, ptsTotal, ratio, wrOut, spDays: spDays.length, spDone, m };
+}
+
+/* 把证据写回 S.chapters（进度、复习排期） */
+function syncMastery() {
+  let changed = 0;
+  CHAPTERS.forEach(c => {
+    const x = S.chapters[c.id];
+    if (!x) return;
+    const st = chStats(c.id);
+    if (x.m !== st.m) {
+      if (st.m > x.m) {
+        x.last = (typeof today === 'function') ? today() : x.last;
+        x.due = st.m >= 5 ? null : STEP() + (typeof stepRound === 'function' ? stepRound(x) : 4);
+      }
+      x.m = st.m;
+      changed++;
+    }
+  });
+  return changed;
+}
+
+/* 一行进度条（图谱 / 今日共用），纯展示，不可点 */
+function chDots(m) {
+  return [1, 2, 3, 4, 5].map(v => '<i class="d' + (m >= v ? ' on' : '') + '"></i>').join('');
+}
+
+/* 本章完成度百分比：考点覆盖为主，掌握度做微调 */
+function chPct(ch) {
+  const st = chStats(ch);
+  if (!st.ptsTotal) return 0;
+  return clamp(Math.round(st.ratio * 100), 0, 100);
+}
+
+/* render 前自动同步：这样一来所有触发 render 的动作都会刷新进度 */
+if (typeof render === 'function') {
+  const __renderAuto = render;
+  render = function () {
+    try { syncMastery(); } catch (e) { }
+    return __renderAuto.apply(this, arguments);
+  };
+}
 
 /* ============================================================
    启动层：必须放在所有分片之后（最后加载）

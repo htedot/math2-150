@@ -10,7 +10,7 @@
         不要用 PowerShell 的 Get-Content | Set-Content 改写（会把中文打成乱码并吃掉换行）。
 */
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = 'math2-150-' + VERSION;
 
 const ASSETS = [
