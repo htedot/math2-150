@@ -7452,7 +7452,8 @@ function viewToday() {
   const wrHTML = dueWr.length ? dueWr.slice(0, 6).map(w => {
     const c = CHAPTERS.find(x => x.id === w.ch);
     const wt = w.title || (typeof wrLookup === 'function' && wrLookup(w) ? wrLookup(w).q : '（无标题）');
-    return '<li><div class="li-t">' + esc(wt) + '<div class="mini">' + esc(c ? c.n : '未分类') + ' · ' + esc(w.cause || '') + ' · 第 ' + Math.max(1, (typeof w.n === 'number' && isFinite(w.n) ? Math.floor(w.n) : 0) + 1) + ' 次' + '</div></div>' +
+    const wtSafe = (typeof wrSafeTex === 'function') ? wrSafeTex(wt) : wt;
+    return '<li><div class="li-t">' + esc(wtSafe) + '<div class="mini">' + esc(c ? c.n : '未分类') + ' · ' + esc(w.cause || '') + ' · 第 ' + Math.max(1, (typeof w.n === 'number' && isFinite(w.n) ? Math.floor(w.n) : 0) + 1) + ' 次' + '</div></div>' +
       '<button class="btn sm" data-act="wr-ok" data-id="' + w.id + '">过关</button></li>';
   }).join('') : '<div class="empty">错题都清空了。</div>';
 
@@ -7809,6 +7810,83 @@ function wrLookup(w) {
   return (BANK[ch] && BANK[ch][i]) || null;
 }
 
+/* ------------------------------------------------------------
+   把「渲染不了的 LaTeX」翻成人能读的文字。
+   两种典型来源：
+   1) 早期版本写错题时把题干硬切成 42 字，$...$ 被切半截 → KaTeX 匹配不到成对定界符，
+      页面上就露出 \left(x+\sqrt{1+x^2}\right 这种反斜杠命令，看着就是乱码；
+   2) 用户自己粘贴了一串没加 $ 的公式。
+   宁可退化成纯文字，也不要让反斜杠命令裸露在页面上。
+   ------------------------------------------------------------ */
+const TEX_SYM = {
+  cdot: '·', times: '×', div: '÷', pm: '±', mp: '∓', ast: '*',
+  le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', approx: '≈', equiv: '≡',
+  lt: '<', gt: '>', to: '→', rightarrow: '→', Rightarrow: '⇒', leftarrow: '←',
+  infty: '∞', partial: '∂', nabla: '∇', sum: 'Σ', prod: 'Π', int: '∫', oint: '∮',
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε',
+  zeta: 'ζ', eta: 'η', theta: 'θ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ',
+  pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', phi: 'φ', varphi: 'φ', chi: 'χ',
+  psi: 'ψ', omega: 'ω', Delta: 'Δ', Sigma: 'Σ', Omega: 'Ω', Gamma: 'Γ', Theta: 'Θ', Lambda: 'Λ', Pi: 'Π', Phi: 'Φ',
+  sin: 'sin', cos: 'cos', tan: 'tan', cot: 'cot', sec: 'sec', csc: 'csc',
+  ln: 'ln', log: 'log', lg: 'lg', exp: 'exp', lim: 'lim', max: 'max', min: 'min',
+  arcsin: 'arcsin', arccos: 'arccos', arctan: 'arctan',
+  quad: ' ', qquad: '  ', ',': ' ', ';': ' ', ':': ' ', '!': '', ' ': ' ',
+  ldots: '…', cdots: '…', dots: '…', prime: '′', circ: '∘', degree: '°',
+  left: '', right: '', big: '', Big: '', bigg: '', Bigg: '', displaystyle: '',
+  text: '', mathrm: '', mathbf: '', operatorname: '', limits: '', nolimits: ''
+};
+
+function latexToText(input) {
+  let s = String(input == null ? '' : input);
+  if (!s) return '';
+  s = s.replace(/\$\$?/g, ' ');
+
+  // 分式：反复替换内层，兼容 \frac{a}{b} 与 \frac12 这种简写
+  for (let i = 0; i < 4; i++) {
+    s = s.replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)');
+    s = s.replace(/\\[dt]?frac\s*(\w)\s*(\w)/g, '($1)/($2)');
+  }
+  // 根式
+  for (let i = 0; i < 4; i++) {
+    s = s.replace(/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g, '√[$1]($2)');
+    s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)');
+  }
+  s = s.replace(/\\sqrt\s*(\w)/g, '√$1');
+
+  // 上下标
+  for (let i = 0; i < 4; i++) {
+    s = s.replace(/\^\{([^{}]*)\}/g, '^($1)').replace(/_\{([^{}]*)\}/g, '_($1)');
+  }
+  s = s.replace(/\^(\w)/g, '^$1').replace(/_(\w)/g, '_$1');
+
+  // 其它命令
+  s = s.replace(/\\([a-zA-Z]+)/g, (m, name) => (TEX_SYM[name] !== undefined ? TEX_SYM[name] : name));
+  // 单个符号命令
+  s = s.replace(/\\([^a-zA-Z])/g, (m, ch) => (TEX_SYM[ch] !== undefined ? TEX_SYM[ch] : ch));
+
+  // 去花括号与多余空白
+  s = s.replace(/[{}]/g, '');
+  s = s.replace(/[ \t]{2,}/g, ' ');
+  s = s.replace(/\s+([,.;:)])/g, '$1');
+  return s.trim();
+}
+
+/* 这条文本是否「渲染不了」：$ 个数为奇数，或没有 $ 却含 LaTeX 命令 */
+function wrBrokenTex(s) {
+  if (!s) return false;
+  const t = String(s);
+  const dollars = (t.match(/\$/g) || []).length;
+  if (dollars % 2 === 1) return true;
+  if (dollars === 0 && /\\[a-zA-Z]+/.test(t)) return true;
+  if (/\\left|\\right|\\frac|\\sqrt|\\begin\{|\\end\{/.test(t) && dollars < 2) return true;
+  return false;
+}
+
+/* 按需清洗：能渲染就原样返回，渲染不了就转文字 */
+function wrSafeTex(s) {
+  return wrBrokenTex(s) ? latexToText(s) : s;
+}
+
 /* 老数据兜底：早期版本写进去的错题没有 n / next / done 字段，
    直接参与运算是 undefined，页面上就会出现「第 NaN 次」「还差 NaN 个单元」 */
 function wrNorm() {
@@ -7835,9 +7913,14 @@ function wrItemHTML(w) {
   const due = !w.done && nx <= STEP();
   const rv = S.ui.wrReveal || {};
   const on = !!rv[w.id];
-  const qtext = w.title || (q ? q.q : '（无题目）');
-  const ans = q ? q.a : (w.ans || '');
-  const sol = q ? q.sol : (w.sol || '');
+  const rawQ = w.title || (q ? q.q : '（无题目）');
+  const rawA = q ? q.a : (w.ans || '');
+  const rawS = q ? q.sol : (w.sol || '');
+  // 渲染不了的（$ 被切成半截等）退化成纯文字，绝不让反斜杠命令裸露
+  const cleaned = wrBrokenTex(rawQ) || wrBrokenTex(rawA) || wrBrokenTex(rawS);
+  const qtext = wrSafeTex(rawQ);
+  const ans = wrSafeTex(rawA);
+  const sol = wrSafeTex(rawS);
   const src = q ? (c ? c.n : '') + ' · ' + q.pt + ' 练习' : (c ? c.n : '未分类');
   const stat = w.done ? '已过关' : due ? '该回炉了' : '还差 ' + Math.max(0, nx - STEP()) + ' 个单元';
 
@@ -7845,7 +7928,8 @@ function wrItemHTML(w) {
     '<div class="wrhead"><span class="wrtag">' + esc(src) + '</span>' +
     '<span class="wrtag ' + (w.done ? 'ok' : due ? 'due' : '') + '">' + esc(stat) + '</span>' +
     (w.cause ? '<span class="wrtag">' + esc(w.cause) + '</span>' : '') +
-    '<span class="wrtag">第 ' + times + ' 次</span></div>' +
+    '<span class="wrtag">第 ' + times + ' 次</span>' +
+    (cleaned ? '<span class="wrtag due">旧格式已转文字</span>' : '') + '</div>' +
     '<div class="wrq">' + esc(qtext) + '</div>' +
     (w.detail ? '<div class="wrdetail">' + esc(w.detail) + '</div>' : '') +
     '<div class="wrsol' + (on ? ' on' : '') + '" id="sol-' + w.id + '">' +
@@ -7889,26 +7973,57 @@ function viewWrongs() {
 function wrMigrate() {
   if (!S || !S.wrongs) return 0;
   let fixed = 0;
+  /* 全库索引：先同章找，找不到再跨章找——题库改版后旧题可能已经不在原章 */
+  const allBanks = CHAPTERS.map(c => ({ ch: c.id, bank: BANK[c.id] || [] }));
   S.wrongs.forEach(w => {
     if (w.qid) return;
     const m = /^来自\s*(\w+)\s+([\d.]+)\s*练习$/.exec(String(w.detail || ''));
     const ch = (m && m[1]) || w.ch;
-    const bank = BANK[ch];
-    if (!bank || !w.title) return;
-    const t = String(w.title).trim();
-    /* 旧版按 42 字硬切，常把公式切成半截（\right$ 之类），只能拿开头一小段比对 */
-    let hit = bank.find(x => x.q === t);
-    for (const n of [30, 24, 18, 12]) {
-      if (hit) break;
-      const key = t.slice(0, n);
-      if (key.length < 12) break;
-      hit = bank.find(x => x.q.indexOf(key) === 0);
+    const t = String(w.title || '').trim();
+    if (!t) return;
+
+    let found = null;
+    const tryBank = (bank, chId) => {
+      if (!bank || !bank.length) return null;
+      let hit = bank.find(x => x.q === t);
+      for (const n of [30, 24, 18, 12]) {
+        if (hit) break;
+        const key = t.slice(0, n);
+        if (key.length < 12) break;
+        hit = bank.find(x => x.q.indexOf(key) === 0);
+      }
+      if (!hit) {
+        /* 截断点落在公式里时前缀可能对不上，退一步用「去公式后的中文骨架」比 */
+        const skeleton = s => String(s).replace(/\$[^$]*\$/g, '□').replace(/\s+/g, '').slice(0, 14);
+        const sk = skeleton(t);
+        if (sk.length >= 6) {
+          hit = bank.find(x => skeleton(x.q).indexOf(sk) === 0);
+        }
+      }
+      return hit ? { q: hit, ch: chId } : null;
+    };
+
+    found = tryBank(BANK[ch], ch);
+    if (!found) {
+      for (const b of allBanks) {
+        if (b.ch === ch) continue;
+        found = tryBank(b.bank, b.ch);
+        if (found) break;
+      }
     }
-    if (!hit) return;
-    w.qid = ch + '-q' + (bank.indexOf(hit) + 1);
-    w.title = hit.q;
-    w.detail = '';
-    fixed++;
+
+    if (found) {
+      w.ch = found.ch;
+      w.qid = found.ch + '-q' + (BANK[found.ch].indexOf(found.q) + 1);
+      w.title = found.q.q;
+      w.detail = '';
+      fixed++;
+      return;
+    }
+
+    /* 认不回来（旧题库已被换掉）：至少把半截 LaTeX 转成人能读的文字 */
+    const cleanedTitle = latexToText(t);
+    if (cleanedTitle && cleanedTitle !== t) { w.title = cleanedTitle; fixed++; }
   });
   return fixed;
 }
