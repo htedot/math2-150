@@ -328,9 +328,18 @@ dl.fml dd .katex{font-size:1.02em}
 .wrsol b{display:inline-block;margin-right:8px;font-size:12px;color:var(--acc);border:1px solid var(--acc);border-radius:6px;padding:0 6px;vertical-align:1px}
 .wracts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 @media(max-width:760px){
-  .wrq{font-size:15px}
+  .wrq{font-size:15px;overflow-x:auto}
   .wracts{gap:6px}
-  .wracts .btn.sm{flex:1 1 auto}
+  .wracts .btn.sm{flex:1 1 calc(50% - 4px);min-width:0}
+  /* 表单里 label 的内联 min-width（220/150/130px）在窄屏会撑破视口，必须压掉 */
+  .card form .row>label.f{flex:1 1 100%!important;min-width:0!important}
+  .card form .row{gap:10px}
+  .card form label.f input,.card form label.f select,.card form label.f textarea{width:100%;min-width:0;box-sizing:border-box}
+  .wrsol{padding:10px}
+  .wrsol p{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .wrsol .katex-display{overflow-x:auto;overflow-y:hidden}
+  /* display 公式默认居中，超出容器时左右两边同时被裁；窄屏改成左对齐，只向右溢出，才能横向滚动看全 */
+  .wrsol .katex-display>.katex{text-align:left;font-size:.92em}
 }
 
 .exambar{position:sticky;top:0;z-index:35;display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 0;margin:0 0 12px;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
@@ -7443,7 +7452,7 @@ function viewToday() {
   const wrHTML = dueWr.length ? dueWr.slice(0, 6).map(w => {
     const c = CHAPTERS.find(x => x.id === w.ch);
     const wt = w.title || (typeof wrLookup === 'function' && wrLookup(w) ? wrLookup(w).q : '（无标题）');
-    return '<li><div class="li-t">' + esc(wt) + '<div class="mini">' + esc(c ? c.n : '未分类') + ' · ' + esc(w.cause || '') + ' · 第 ' + (w.n + 1) + ' 次' + '</div></div>' +
+    return '<li><div class="li-t">' + esc(wt) + '<div class="mini">' + esc(c ? c.n : '未分类') + ' · ' + esc(w.cause || '') + ' · 第 ' + Math.max(1, (typeof w.n === 'number' && isFinite(w.n) ? Math.floor(w.n) : 0) + 1) + ' 次' + '</div></div>' +
       '<button class="btn sm" data-act="wr-ok" data-id="' + w.id + '">过关</button></li>';
   }).join('') : '<div class="empty">错题都清空了。</div>';
 
@@ -7800,23 +7809,43 @@ function wrLookup(w) {
   return (BANK[ch] && BANK[ch][i]) || null;
 }
 
+/* 老数据兜底：早期版本写进去的错题没有 n / next / done 字段，
+   直接参与运算是 undefined，页面上就会出现「第 NaN 次」「还差 NaN 个单元」 */
+function wrNorm() {
+  if (!S) return 0;
+  if (!Array.isArray(S.wrongs)) { S.wrongs = []; return 0; }
+  let fixed = 0;
+  S.wrongs.forEach(w => {
+    if (!w || typeof w !== 'object') return;
+    if (typeof w.n !== 'number' || !isFinite(w.n)) { w.n = 0; fixed++; }
+    if (typeof w.done !== 'boolean') { w.done = false; fixed++; }
+    if (typeof w.next !== 'number' || !isFinite(w.next)) { w.next = STEP(); fixed++; }
+    if (!w.id) { w.id = uid(); fixed++; }
+    if (w.cause === undefined || w.cause === null) { w.cause = ''; fixed++; }
+    if (!w.title && !w.qid) { w.title = '（无题目）'; fixed++; }
+  });
+  return fixed;
+}
+
 function wrItemHTML(w) {
   const c = CHAPTERS.find(x => x.id === w.ch);
   const q = wrLookup(w);
-  const due = !w.done && (w.next === undefined || w.next === null || w.next <= STEP());
+  const nx = (typeof w.next === 'number' && isFinite(w.next)) ? w.next : STEP();
+  const times = Math.max(1, (typeof w.n === 'number' && isFinite(w.n) ? Math.floor(w.n) : 0) + 1);
+  const due = !w.done && nx <= STEP();
   const rv = S.ui.wrReveal || {};
   const on = !!rv[w.id];
   const qtext = w.title || (q ? q.q : '（无题目）');
   const ans = q ? q.a : (w.ans || '');
   const sol = q ? q.sol : (w.sol || '');
   const src = q ? (c ? c.n : '') + ' · ' + q.pt + ' 练习' : (c ? c.n : '未分类');
-  const stat = w.done ? '已过关' : due ? '该回炉了' : '还差 ' + Math.max(0, w.next - STEP()) + ' 个单元';
+  const stat = w.done ? '已过关' : due ? '该回炉了' : '还差 ' + Math.max(0, nx - STEP()) + ' 个单元';
 
   return '<li class="wr"><div class="li-t">' +
     '<div class="wrhead"><span class="wrtag">' + esc(src) + '</span>' +
     '<span class="wrtag ' + (w.done ? 'ok' : due ? 'due' : '') + '">' + esc(stat) + '</span>' +
     (w.cause ? '<span class="wrtag">' + esc(w.cause) + '</span>' : '') +
-    '<span class="wrtag">第 ' + (w.n + 1) + ' 次</span></div>' +
+    '<span class="wrtag">第 ' + times + ' 次</span></div>' +
     '<div class="wrq">' + esc(qtext) + '</div>' +
     (w.detail ? '<div class="wrdetail">' + esc(w.detail) + '</div>' : '') +
     '<div class="wrsol' + (on ? ' on' : '') + '" id="sol-' + w.id + '">' +
@@ -7918,6 +7947,7 @@ document.addEventListener('click', function (ev) {
 S = load();
 if (!S.start) S.start = today();
 ensureExt();
+try { if (typeof wrNorm === 'function') wrNorm(); } catch (e) { }
 try { if (typeof wrMigrate === 'function') wrMigrate(); } catch (e) { }
 save();
 render();
