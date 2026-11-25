@@ -7832,13 +7832,29 @@ const TEX_SYM = {
   arcsin: 'arcsin', arccos: 'arccos', arctan: 'arctan',
   quad: ' ', qquad: '  ', ',': ' ', ';': ' ', ':': ' ', '!': '', ' ': ' ',
   ldots: '…', cdots: '…', dots: '…', prime: '′', circ: '∘', degree: '°',
+  sqrt: '√', frac: '/', dfrac: '/', tfrac: '/', iint: '∬', sup: 'sup', inf: 'inf',
   left: '', right: '', big: '', Big: '', bigg: '', Bigg: '', displaystyle: '',
   text: '', mathrm: '', mathbf: '', operatorname: '', limits: '', nolimits: ''
 };
 
+/* 反斜杠被吃掉的历史数据（存过 '\left(' 这种字符串，\l \s 被当未知转义丢掉、
+   \r 直接变成回车），显示成 "left(x+sqrt1+x^2 ⏎ ight"。这里把裸命令词补回反斜杠，
+   再交给 latexToText 正常转换。只在「已判定渲染不了」的文本上跑，不会误伤正文。 */
+const BARE_CMD = /(?<![\\a-zA-Z])(left|right|sqrt|frac|dfrac|tfrac|infty|partial|alpha|beta|gamma|delta|theta|lambda|mu|pi|sigma|varphi|omega|cdot|times|div|pm|mp|le|ge|ne|approx|equiv|int|iint|oint|sum|prod|lim|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|ln|log|exp|max|min|sup|inf|quad|qquad|to|rightarrow|Rightarrow|ldots|cdots|dots|prime)(?![a-zA-Z])/g;
+
+function wrRepairCmd(s) {
+  let t = String(s == null ? '' : s);
+  t = t.replace(/[\r\n\t]+/g, ' ');
+  t = t.replace(BARE_CMD, '\\$1');
+  /* \r 变成回车后 \right 只剩 "ight"，这是同一个事故的尾巴 */
+  t = t.replace(/(^|[\s(])(?:r)?ight(?=[\s)]|$)/g, '$1');
+  return t;
+}
+
 function latexToText(input) {
   let s = String(input == null ? '' : input);
   if (!s) return '';
+  s = wrRepairCmd(s);
   s = s.replace(/\$\$?/g, ' ');
 
   // 分式：反复替换内层，兼容 \frac{a}{b} 与 \frac12 这种简写
@@ -7871,7 +7887,8 @@ function latexToText(input) {
   return s.trim();
 }
 
-/* 这条文本是否「渲染不了」：$ 个数为奇数，或没有 $ 却含 LaTeX 命令 */
+/* 这条文本是否「渲染不了」：$ 个数为奇数，或没有 $ 却含 LaTeX 命令，
+   或反斜杠已经被吃掉、只剩裸命令词（left( / sqrt1+x^2 / ight …） */
 function wrBrokenTex(s) {
   if (!s) return false;
   const t = String(s);
@@ -7879,6 +7896,7 @@ function wrBrokenTex(s) {
   if (dollars % 2 === 1) return true;
   if (dollars === 0 && /\\[a-zA-Z]+/.test(t)) return true;
   if (/\\left|\\right|\\frac|\\sqrt|\\begin\{|\\end\{/.test(t) && dollars < 2) return true;
+  if (/(?<![\\a-zA-Z])(left|right|sqrt|frac|infty|partial|geq?|leq?|neq?)(?![a-zA-Z])/.test(t)) return true;
   return false;
 }
 
