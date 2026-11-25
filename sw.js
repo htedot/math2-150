@@ -1,11 +1,7 @@
-/* 数二·150 工作台 — Service Worker
-   作用有二：
-   1) 让浏览器判定为「可安装应用」（Chrome/Edge 的 WebAPK 安装要求页面有 fetch 处理器）；
-   2) 真正离线可用：断网也能打开。
-   更新策略：导航请求走网络优先（拿到新版就顺带更新缓存），静态资源走缓存优先。
-   发新版时把 VERSION 加一，旧的缓存会在 activate 时清掉。 */
+﻿/* 鏁颁簩路150 宸ヤ綔鍙?鈥?Service Worker
+   浣滅敤鏈変簩锛?   1) 璁╂祻瑙堝櫒鍒ゅ畾涓恒€屽彲瀹夎搴旂敤銆嶏紙Chrome/Edge 鐨?WebAPK 瀹夎瑕佹眰椤甸潰鏈?fetch 澶勭悊鍣級锛?   2) 鐪熸绂荤嚎鍙敤锛氭柇缃戜篃鑳芥墦寮€銆?   鏇存柊绛栫暐锛氬鑸姹傝蛋缃戠粶浼樺厛锛堟嬁鍒版柊鐗堝氨椤哄甫鏇存柊缂撳瓨锛夛紝闈欐€佽祫婧愯蛋缂撳瓨浼樺厛銆?   鍙戞柊鐗堟椂鎶?VERSION 鍔犱竴锛屾棫鐨勭紦瀛樹細鍦?activate 鏃舵竻鎺夈€?*/
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = 'math2-150-' + VERSION;
 
 const ASSETS = [
@@ -44,8 +40,7 @@ self.addEventListener('fetch', (e) => {
   try { url = new URL(req.url); } catch (_) { return; }
   if (url.origin !== self.location.origin) return;
 
-  // 页面导航：网络优先，失败回落到缓存（离线可打开）
-  if (req.mode === 'navigate') {
+  // 椤甸潰瀵艰埅锛氱綉缁滀紭鍏堬紝澶辫触鍥炶惤鍒扮紦瀛橈紙绂荤嚎鍙墦寮€锛?  if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)
         .then((res) => {
@@ -58,7 +53,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // 图标 / manifest 等：缓存优先
+  // 鍥炬爣 / manifest 绛夛細缂撳瓨浼樺厛
   e.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
       if (hit) return hit;
